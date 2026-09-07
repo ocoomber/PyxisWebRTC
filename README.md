@@ -154,6 +154,14 @@ the slightly-delayed MSE path.
   On a 1 Gb/s switch a handful of 1080p viewers is trivial; over WiFi expect per-client
   headroom to matter more.
 
+## Stopping the app
+
+The page has a **Stop server** button (top-right). It shuts down this Node app on *this*
+PC — ffmpeg, mediaMTX, and the web page — and you're prompted to confirm first. It only
+stops the **PC side**: your camera keeps streaming on its own (the camera is always
+controlled from the camera itself, never from this page). Restart the app anytime with
+`npm start`. Anyone with the page open and a confirmed click can stop the server.
+
 ## Latency
 
 - **WebRTC path: ~0.2–0.4s glass-to-glass.** The browser rides the live edge at 24.0 fps with

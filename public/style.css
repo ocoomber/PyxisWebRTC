@@ -31,6 +31,27 @@ html, body {
 .status.ok { color: var(--ok); }
 .status.err { color: var(--err); }
 
+.topbarCtl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.stopBtn {
+  background: #2a2122;
+  color: var(--err);
+  border: 1px solid #5b2b30;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stopBtn:hover { background: #341f20; border-color: var(--err); }
+.stopBtn:disabled { opacity: .45; cursor: default; }
+.stopBtn.disarmed { background: #1c1e22; color: var(--muted); border-color: var(--border); cursor: default; }
+.stopHint { color: var(--muted); font-size: 11.5px; line-height: 1.25; max-width: 260px; }
+
 .layout {
   padding: 16px;
   max-width: 1100px;

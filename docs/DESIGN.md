@@ -149,6 +149,11 @@ Self-healing verified: killing mediaMTX recovered the whole chain in a few secon
 - **mediaMTX supervisor**: same pattern, respawn after 1s, exposed as `status.mediaMtx`
   (running/restarts/whepUrl/lastLog).
 - `POST /api/stream/stop` clears `wantRunning` and cancels the restart timers.
+- **`POST /api/shutdown`** (the page's *Stop server* button, confirmed first): stops ffmpeg
+  and mediaMTX, closes every WS client and both servers, then exits the Node process after
+  ~300ms so the response flushes. `SIGINT`/`SIGTERM` (Ctrl+C) call the same routine, so a
+  killed server never leaves orphan ffmpeg/mediaMTX behind squatting `:9000`/`:8889`. Only
+  the PC side is stopped — the camera keeps streaming on its own.
 
 ## Camera REST bits
 

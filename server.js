@@ -404,6 +404,23 @@ function stopStream() {
   return { ok: true };
 }
 
+// Full app shutdown: stop ffmpeg + mediaMTX, close every client and both servers,
+// then exit the Node process. Used by POST /api/shutdown and SIGINT/SIGTERM so a
+// stopped server never leaves orphan ffmpeg/mediaMTX behind squatting the ports.
+let shuttingDown = false;
+function shutdownServer() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  stopStream();
+  stopMediaMtx();
+  closeAllClients();
+  try { wss.close(); } catch (_) {}
+  try { server.close(); } catch (_) {}
+  try { clearInterval(STREAM.watchdogTimer); } catch (_) {}
+  console.log('[server] stopping — managed ffmpeg/mediaMTX closed, all clients disconnected');
+  process.exit(0);
+}
+
 process.on('uncaughtException', (e) => {
   console.error('[uncaughtException]', e && e.stack || e);
   try { STREAM.log.push('[uncaughtException] ' + (e && e.message)); } catch (_) {}
@@ -448,6 +465,13 @@ const server = http.createServer((req, res) => {
   if (urlPath === '/api/stream/stop') {
     const r = stopStream();
     return sendJSON(res, r, r.ok ? 200 : 409);
+  }
+  if (urlPath === '/api/shutdown' && req.method === 'POST') {
+    // ACK first so the browser sees the response, then stop everything. The
+    // reader process waits ~300ms for the response to flush before exiting.
+    sendJSON(res, { ok: true, message: 'server stopping' });
+    setTimeout(shutdownServer, 300);
+    return;
   }
   if (urlPath.startsWith('/cam/')) {
     return proxyCamera(req, res, urlPath.replace(/^\/cam/, ''));
@@ -500,12 +524,13 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('    GET  /api/stream/status');
   console.log('    POST /api/stream/start   (open SRT listener -> WHIP + WS relay)');
   console.log('    POST /api/stream/stop');
+  console.log('    POST /api/shutdown       (stop this server + ffmpeg + mediaMTX)');
   console.log('==========================================');
   startMediaMtx();
 });
 
 process.on('exit', () => stopMediaMtx());
-process.on('SIGINT', () => { stopMediaMtx(); process.exit(0); });
-process.on('SIGTERM', () => { stopMediaMtx(); process.exit(0); });
+process.on('SIGINT', shutdownServer);
+process.on('SIGTERM', shutdownServer);
 
 module.exports = { startStream, stopStream, streamStatus, STREAM, FFMPEG, MEDIAMTX, WHEP_URL };

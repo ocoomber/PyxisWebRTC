@@ -9,6 +9,7 @@ const setStat = (id, val, cls) => {
 
 let cfg = null;
 let playerStarted = false;
+let pollTimer = null;
 
 let transport = null;        // 'webrtc' | 'mse' | null
 let pc = null;               // active RTCPeerConnection (webrtc)
@@ -455,6 +456,32 @@ async function refreshStatus() {
   }
 }
 
+/* ---------------- stop-server control ---------------- */
+
+function wireStopServer() {
+  const btn = $('stopServerBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (btn.disabled || btn.classList.contains('disarmed')) return;
+    const ok = confirm(
+      'Stop the live-view server on this PC?\n\n' +
+      'This stops the app (ffmpeg + mediaMTX) running on this computer.\n' +
+      'Your camera is NOT affected — it keeps streaming on its own.\n\n' +
+      'Restart it later by running "npm start" again.'
+    );
+    if (!ok) return;
+    btn.disabled = true;
+    btn.textContent = 'stopping…';
+    btn.classList.add('disarmed');
+    try { await fetch('/api/shutdown', { method: 'POST' }); } catch (_) {}
+    // the server is going away; stop polling and tell the user
+    try { clearInterval(pollTimer); } catch (_) {}
+    setStat('listenerStatus', 'server stopped — safe to close this tab', 'muted');
+    setHint('This PC no longer listens for the camera. Restart with "npm start".');
+    showPlaceholder('Server stopped');
+  });
+}
+
 (async () => {
   await loadConfig();
   // start the PC listener if it isn't running; the camera reconnects on its own
@@ -466,5 +493,6 @@ async function refreshStatus() {
     }
   } catch (_) {}
   refreshStatus();
-  setInterval(refreshStatus, 3000);
+  pollTimer = setInterval(refreshStatus, 3000);
+  wireStopServer();
 })();
