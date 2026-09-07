@@ -25,9 +25,10 @@ Windows PC you already own — free, no purchase, no extra hardware.
 ## Quick start (Windows)
 
 **What you get:** a web page at `http://localhost:9090` that live-views your PYXIS over
-the LAN — no internet, no cloud, no SDKs. The app manages ffmpeg + mediaMTX for you and
-auto-respawns either if it crashes. Other devices on your network can open the same page
-(see *Multiple viewers* below).
+the LAN — no internet, no cloud, no SDKs. The app manages ffmpeg + mediaMTX for you,
+auto-respawns either if it crashes, and force-restarts ffmpeg if it silently wedges on a
+cold start (WHIP vs. just-booted mediaMTX race). Other devices on your network can open the
+same page (see *Multiple viewers* below).
 
 1. **Install ffmpeg** (>= 8.x, needs the native `whip` muxer and libsrt):
    `winget install Gyan.FFmpeg` — or download from gyan.dev and make sure `ffmpeg` is on PATH.
@@ -198,3 +199,21 @@ docs/TROUBLESHOOTING.md    Wedged streams, black video, restarts, Firefox, and m
 - **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** — the failure modes we hit and their
   cures: black video / PLI storms, the "stream is active to a different destination" wedge,
   restart procedures, browser gotchas.
+
+## License (GPL-3.0)
+
+This project is **GPL-3.0**. In plain terms:
+
+- **Use it, modify it, build on it** — free, for personal or open-source projects.
+- **Share improvements** — if you distribute a modified/derived version, you must release
+  your source under the same copyleft terms.
+- **Paid / closed-source use** — everyone is free to license it as they see fit, but anyone
+  who wants to use this work as the basis of a **paid or proprietary** product must either
+  keep it open under GPL or **pay the copyright holder for a commercial license** (contact
+  the author). You can't silently bundle it into a closed paid product without paying.
+
+The repo's only npm dependency (`ws`) is MIT, which is compatible with GPL-3.0. ffmpeg and
+mediaMTX are separately-installed third-party binaries and not part of this codebase.
+
+**Looking to use this in a paid or closed-source product?** See
+[COMMERCIAL.md](COMMERCIAL.md) for a commercial license.

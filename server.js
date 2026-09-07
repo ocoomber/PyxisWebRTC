@@ -101,6 +101,9 @@ const STREAM = {
   wantRunning: false,
   restartTimer: null,
   restarts: 0,
+  watchdogTimer: null,   // cold-start WHIP liveness watchdog
+  lastStdoutAt: 0,       // last time ffmpeg produced any MSE/stdout data
+  overflowStreak: 0,     // consecutive poll windows with SRT-receiver overflow spam
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -203,6 +206,8 @@ function streamStatus() {
 function spawnFfmpeg() {
   STREAM.init = null;
   STREAM.partial = null;
+  STREAM.lastStdoutAt = Date.now();
+  STREAM.overflowStreak = 0;
   const input = 'srt://0.0.0.0:' + STREAM.port + '?mode=listener&latency=120000';
   const args = [
     '-hide_banner', '-loglevel', 'info',
@@ -240,6 +245,7 @@ function spawnFfmpeg() {
     '-f', 'mp4', 'pipe:1',
   ];
   STREAM.proc = spawn(FFMPEG, args, { windowsHide: true });
+  const proc = STREAM.proc;
   STREAM.startedAt = new Date().toISOString();
   const push = (b) => {
     const line = String(b).trim();
@@ -247,7 +253,9 @@ function spawnFfmpeg() {
     STREAM.log.push(line);
     if (STREAM.log.length > 400) STREAM.log.shift();
   };
-  STREAM.proc.stdout.on('data', (chunk) => {
+  proc.stdout.on('data', (chunk) => {
+    STREAM.lastStdoutAt = Date.now();   // pipeline is alive / producing
+    STREAM.overflowStreak = 0;          // flowing stdout = healthy; clear any stale overflow
     if (!STREAM.init) {
       STREAM.partial = STREAM.partial ? Buffer.concat([STREAM.partial, chunk]) : Buffer.from(chunk);
       const at = findInitEnd(STREAM.partial);
@@ -262,12 +270,26 @@ function spawnFfmpeg() {
     }
     broadcast(chunk);
   });
-  STREAM.proc.stderr.on('data', push);
-  STREAM.proc.on('exit', (code) => {
+  proc.stderr.on('data', (b) => {
+    const line = String(b);
+    if (line.indexOf('No room to store incoming packet') !== -1) {
+      // SRT receiver overflowing means ffmpeg's downstream WHIP publish is
+      // wedged (cold-start race vs. a just-booted mediaMTX). The watchdog
+      // will force a kill->respawn. Count it separately, not in the log.
+      STREAM.overflowStreak = Math.min(STREAM.overflowStreak + 1, 1e9);
+    }
+    push(b);
+  });
+  proc.on('exit', (code) => {
+    // If a newer ffmpeg already replaced this one (watchdog kill->respawn), the
+    // late 'exit' from the killed process must not clobber the new proc or
+    // trigger a duplicate respawn.
+    if (STREAM.proc !== proc) return;
     push('[ffmpeg exited code=' + code + ']');
     STREAM.proc = null;
     STREAM.init = null;
     STREAM.partial = null;
+    stopWatchdog();
     closeAllClients();
     // supervisor: keep the listener alive so the camera can reconnect on its own
     if (STREAM.wantRunning) {
@@ -279,7 +301,45 @@ function spawnFfmpeg() {
       }, 800);
     }
   });
-  STREAM.proc.on('error', (e) => push('[ffmpeg error] ' + e.message));
+  proc.on('error', (e) => push('[ffmpeg error] ' + e.message));
+  startWatchdog();
+}
+
+// Cold-start WHIP liveness watchdog. ffmpeg's WHIP publish can hang SILENTLY
+// against a just-booted mediaMTX: it doesn't error and doesn't exit, so the
+// exit-only supervisor never fires. The WHIP leg freezes, the SRT receiver
+// stops draining and overflows ("No room to store incoming packet" spam), and
+// no init segment is ever produced -> black video. The reliable wedge signal is
+// SRT-overflow spam with NO stdout progress. We force-kill ffmpeg so the exit
+// supervisor respawns it fresh (kill->respawn is exactly what clears it).
+function startWatchdog() {
+  stopWatchdog();
+  STREAM.watchdogTimer = setInterval(() => {
+    if (!STREAM.wantRunning || !STREAM.proc) return;      // state machine idle; nothing to do
+    if (STREAM.proc.exitCode !== null) return;            // already exited; supervisor handles it
+    const wedged =
+      // continuously overflowing SRT receiver (the downstream WHIP leg is stuck) ...
+      STREAM.overflowStreak > 0 &&
+      // ... AND the pipeline has produced NOTHING on stdout in a full watch window.
+      // A healthy idle-waiting ffmpeg (camera not streaming yet) produces no stdout
+      // but also no overflow spam, so it is never wedged.
+      (Date.now() - STREAM.lastStdoutAt > 15000);
+    if (!wedged) return;
+    const msg = '[watchdog] ffmpeg wedged (WHIP cold-start hang): SRT overflow, no stdout for ' +
+      Math.round((Date.now() - STREAM.lastStdoutAt) / 1000) + 's — forcing kill -> respawn';
+    push(msg);
+    STREAM.overflowStreak = 0;
+    stopWatchdog();
+    const p = STREAM.proc;
+    STREAM.proc = null;                 // clear so a late real 'exit' doesn't double-restart
+    STREAM.init = null;
+    try { p.kill('SIGKILL'); } catch (_) {}
+    if (STREAM.wantRunning) spawnFfmpeg();   // immediate fresh start (no 800ms wait needed)
+  }, 5000);
+}
+
+function stopWatchdog() {
+  if (STREAM.watchdogTimer) { clearInterval(STREAM.watchdogTimer); STREAM.watchdogTimer = null; }
 }
 
 function startStream() {
@@ -295,6 +355,7 @@ function startStream() {
 function stopStream() {
   STREAM.wantRunning = false;
   if (STREAM.restartTimer) { clearTimeout(STREAM.restartTimer); STREAM.restartTimer = null; }
+  stopWatchdog();
   if (!STREAM.proc) return { ok: false, error: 'not running' };
   const p = STREAM.proc;
   STREAM.proc = null;

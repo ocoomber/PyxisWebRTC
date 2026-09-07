@@ -133,6 +133,13 @@ Self-healing verified: killing mediaMTX recovered the whole chain in a few secon
 - **ffmpeg supervisor**: `POST /api/stream/start` sets `wantRunning` and spawns ffmpeg. If
   ffmpeg exits for any reason, it respawns after 800ms so the camera's SRT caller reconnects.
   `GET /api/stream/status` exposes `restarts` plus the tail of ffmpeg's log.
+- **ffmpeg liveness watchdog**: exit-only supervision misses a *silent* cold-start WHIP hang,
+  where ffmpeg's WHIP publish against a just-booted mediaMTX freezes without erroring or
+  exiting (SRT receiver overflows with "No room to store incoming packet" spam, stdout stops,
+  no init segment → black video). The watchdog polls every 5s and force-kills ffmpeg (→
+  immediate supervisor respawn) when the SRT receiver keeps overflowing **and** stdout has
+  produced nothing for >15s. A healthy idle-waiting ffmpeg (camera not streaming yet) produces
+  no overflow, so it is never touched.
 - **mediaMTX supervisor**: same pattern, respawn after 1s, exposed as `status.mediaMtx`
   (running/restarts/whepUrl/lastLog).
 - `POST /api/stream/stop` clears `wantRunning` and cancels the restart timers.
