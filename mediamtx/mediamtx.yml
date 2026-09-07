@@ -1,0 +1,26 @@
+logLevel: info
+
+rtsp: false
+rtmp: false
+hls: false
+srt: false
+api: false
+moq: false
+
+webrtc: true
+
+# host media endpoint / WHEP reader lives on this HTTP address :8889
+webrtcAddress: :8889
+
+# Tell same-LAN & loopback browsers the PC's reachable IP (WebRTC ICE).
+# Empty = auto-detected from the listening interface (right for a single-NIC
+# PC on a LAN). If browser clients can't connect, set your PC's LAN IP here,
+# e.g.  webrtcAdditionalHosts: [192.168.1.50]
+webrtcAdditionalHosts: []
+
+# WebRTC media plane (UDP/DTLS/SRTP) static listener. Whitelist in firewall if
+# viewing from another machine; loopback / same-PC doesn't need firewall.
+webrtcLocalUDPAddress: :8189
+
+paths:
+  live: {}

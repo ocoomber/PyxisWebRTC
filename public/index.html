@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PYXIS 6K Live</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="topbar">
+  <h1>PYXIS 6K <span class="muted">live</span></h1>
+  <span id="connStatus" class="status">…</span>
+</div>
+
+<div class="layout">
+  <div class="panel" id="videoPanel">
+    <div class="videoWrap">
+      <video id="video" muted autoplay playsinline controls></video>
+      <div id="videoPlaceholder" class="videoPlaceholder">No stream</div>
+    </div>
+    <div class="streamCtl">
+      <div class="row">
+        <span class="lbl">Camera target</span>
+        <code id="streamTarget">—</code>
+      </div>
+      <div class="row">
+        <span class="lbl">Camera status</span>
+        <span id="camStatus" class="muted">—</span>
+      </div>
+      <div class="row">
+        <span class="lbl">PC listener</span>
+        <span id="listenerStatus" class="muted">—</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Player</span>
+        <span id="playerStats" class="muted">—</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js?v=13"></script>
+</body>
+</html>
