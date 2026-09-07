@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# mediaMTX binary is downloaded manually (see README); keep the config only
+mediamtx/mediamtx.exe
+*.exe
+
+# backups / OS junk
+*.bak
+.DS_Store
+
+# local runtime data
+data/
+
+# repo-internal working doc for agents (not published)
+AGENTS.md

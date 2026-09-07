@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<streaming>
+<service customizable-url="false">
+<name>Pyxis Local SRT</name>
+<servers>
+<server>
+<name>Primary</name>
+<url>srt://PUT_YOUR_PC_IP:9000?mode=caller</url>
+</server>
+</servers>
+<profiles>
+<profile>
+<name>Streaming High</name>
+<config resolution="1080p" fps="24" codec="H264">
+<bitrate>16000000</bitrate>
+<audio-bitrate>128000</audio-bitrate>
+<keyframe-interval>1</keyframe-interval>
+</config>
+</profile>
+</profiles>
+</service>
+</streaming>
