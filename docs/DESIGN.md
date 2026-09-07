@@ -133,13 +133,19 @@ Self-healing verified: killing mediaMTX recovered the whole chain in a few secon
 - **ffmpeg supervisor**: `POST /api/stream/start` sets `wantRunning` and spawns ffmpeg. If
   ffmpeg exits for any reason, it respawns after 800ms so the camera's SRT caller reconnects.
   `GET /api/stream/status` exposes `restarts` plus the tail of ffmpeg's log.
-- **ffmpeg liveness watchdog**: exit-only supervision misses a *silent* cold-start WHIP hang,
-  where ffmpeg's WHIP publish against a just-booted mediaMTX freezes without erroring or
-  exiting (SRT receiver overflows with "No room to store incoming packet" spam, stdout stops,
-  no init segment → black video). The watchdog polls every 5s and force-kills ffmpeg (→
-  immediate supervisor respawn) when the SRT receiver keeps overflowing **and** stdout has
-  produced nothing for >15s. A healthy idle-waiting ffmpeg (camera not streaming yet) produces
-  no overflow, so it is never touched.
+- **ffmpeg liveness watchdog**: exit-only supervision misses a *silent* crash where ffmpeg
+  stays alive but stops working. It detects two modes: (1) a **cold-start WHIP hang** — the
+  WHIP publish against a just-booted mediaMTX freezes without erroring/exiting (SRT receiver
+  overflows with "No room to store incoming packet" spam, stdout stops, no init segment →
+  black video); (2) a **vanished SRT listener** — ffmpeg keeps its WHIP connection but its
+  SRT socket on `SRT_PORT` silently disappears, so the camera's caller gets nothing
+  (`Connecting` forever, no frames, no overflow spam, no exit). The watchdog polls every 5s,
+  force-killing ffmpeg (→ immediate supervisor respawn) when the SRT receiver keeps
+  overflowing **and** stdout has produced nothing for >15s, **or** `netstat -ano -p udp`
+  shows no UDP listen on the SRT port owned by our ffmpeg PID (after a 10s spawn grace
+  period so a freshly-started process is never misjudged; a netstat failure skips the check
+  rather than false-killing). A healthy idle-waiting ffmpeg (camera not streaming yet)
+  produces no overflow and still holds its socket, so it is never touched.
 - **mediaMTX supervisor**: same pattern, respawn after 1s, exposed as `status.mediaMtx`
   (running/restarts/whepUrl/lastLog).
 - `POST /api/stream/stop` clears `wantRunning` and cancels the restart timers.

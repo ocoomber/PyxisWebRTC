@@ -3,7 +3,7 @@ const os = require('os');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { WebSocketServer } = require('ws');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -104,6 +104,8 @@ const STREAM = {
   watchdogTimer: null,   // cold-start WHIP liveness watchdog
   lastStdoutAt: 0,       // last time ffmpeg produced any MSE/stdout data
   overflowStreak: 0,     // consecutive poll windows with SRT-receiver overflow spam
+  spawnedAt: 0,          // ms timestamp of last ffmpeg spawn (grace window for srt-bind check)
+  srtBound: null,        // last SRT-listener probe result (true/false), updated by the watchdog
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -193,6 +195,7 @@ function streamStatus() {
     startedAt: STREAM.startedAt,
     clients: wss.clients.size,
     restarts: STREAM.restarts,
+    srtBound: STREAM.srtBound,
     lastLog: STREAM.log.slice(-60),
     mediaMtx: {
       running: !!MTX.proc && MTX.proc.exitCode === null,
@@ -208,6 +211,8 @@ function spawnFfmpeg() {
   STREAM.partial = null;
   STREAM.lastStdoutAt = Date.now();
   STREAM.overflowStreak = 0;
+  STREAM.spawnedAt = Date.now();
+  STREAM.srtBound = null;
   const input = 'srt://0.0.0.0:' + STREAM.port + '?mode=listener&latency=120000';
   const args = [
     '-hide_banner', '-loglevel', 'info',
@@ -312,28 +317,63 @@ function spawnFfmpeg() {
 // no init segment is ever produced -> black video. The reliable wedge signal is
 // SRT-overflow spam with NO stdout progress. We force-kill ffmpeg so the exit
 // supervisor respawns it fresh (kill->respawn is exactly what clears it).
+
+// Surprising third wedge: ffmpeg stays alive and keeps its WHIP connection to
+// mediaMTX, but its SRT listener socket silently vanishes — nothing is bound on
+// STREAM.port any more. No process exit, no overflow spam (no packets even reach
+// it), so the two signals above never fire. The camera sits at "Connecting"
+// forever and no frames flow. This check parses netstat for a UDP listen on the
+// SRT port owned by our ffmpeg PID; returns true (bound) when the bind is present
+// or the check itself can't run (fail-open: an uncertain probe must never kill a
+// healthy stream).
+function srtListenerBound() {
+  const p = STREAM.proc;
+  if (!p || p.exitCode !== null || !p.pid) return true;
+  // Skip the first seconds after spawn — ffmpeg hasn't bound the socket yet and
+  // a freshly respawned process must not be killed by an early poll.
+  if (Date.now() - STREAM.spawnedAt < 10000) return true;
+  try {
+    // netstat -ano -p udp columns: Proto | Local Address | Foreign Address | PID
+    // (no State column for UDP). A SRT listener shows a *:* foreign address with
+    // the local address ending in :PORT. Match the LOCAL column only — matching
+    // anywhere would also hit connected sockets whose remote peer happens to use
+    // the same port number.
+    const out = execSync('netstat -ano -p udp', { windowsHide: true, encoding: 'utf8', timeout: 3000 });
+    const wantPort = ':' + STREAM.port;
+    const pid = String(p.pid);
+    return out.split(/\r?\n/).some((line) => {
+      const cols = line.trim().split(/\s+/);
+      return cols[0] === 'UDP' && cols[1] && cols[1].endsWith(wantPort) && cols[cols.length - 1] === pid;
+    });
+  } catch (_) {
+    return true; // netstat unavailable/failed -> don't kill on a false alarm
+  }
+}
+
 function startWatchdog() {
   stopWatchdog();
   STREAM.watchdogTimer = setInterval(() => {
     if (!STREAM.wantRunning || !STREAM.proc) return;      // state machine idle; nothing to do
     if (STREAM.proc.exitCode !== null) return;            // already exited; supervisor handles it
-    const wedged =
-      // continuously overflowing SRT receiver (the downstream WHIP leg is stuck) ...
+    STREAM.srtBound = srtListenerBound();
+    const wedged = !STREAM.srtBound;
+    const overflowing =
       STREAM.overflowStreak > 0 &&
-      // ... AND the pipeline has produced NOTHING on stdout in a full watch window.
-      // A healthy idle-waiting ffmpeg (camera not streaming yet) produces no stdout
-      // but also no overflow spam, so it is never wedged.
       (Date.now() - STREAM.lastStdoutAt > 15000);
-    if (!wedged) return;
-    const msg = '[watchdog] ffmpeg wedged (WHIP cold-start hang): SRT overflow, no stdout for ' +
-      Math.round((Date.now() - STREAM.lastStdoutAt) / 1000) + 's — forcing kill -> respawn';
-    push(msg);
+    const reason = wedged
+      ? ('SRT listener socket not bound (port ' + STREAM.port + ') — forcing kill -> respawn')
+      : overflowing
+        ? ('SRT overflow, no stdout for ' + Math.round((Date.now() - STREAM.lastStdoutAt) / 1000) + 's — forcing kill -> respawn')
+        : null;
+    if (!reason) return;
+    push('[watchdog] ffmpeg wedged: ' + reason);
     STREAM.overflowStreak = 0;
     stopWatchdog();
     const p = STREAM.proc;
     STREAM.proc = null;                 // clear so a late real 'exit' doesn't double-restart
     STREAM.init = null;
     try { p.kill('SIGKILL'); } catch (_) {}
+    closeAllClients();                  // behave like a crash: page rebuilds the player now
     if (STREAM.wantRunning) spawnFfmpeg();   // immediate fresh start (no 800ms wait needed)
   }, 5000);
 }
