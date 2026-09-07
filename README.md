@@ -1,13 +1,18 @@
 # PYXIS 6K over Ethernet — low-latency browser live view
 
-A plug-and-play system that turns your Blackmagic **PYXIS 6K** into a near-zero-delay
-**live view in your browser over Ethernet** — built for wire-focus pulls, camera
-monitoring and client monitors on set.
+Free, **no-extra-hardware** live view of your Blackmagic **PYXIS 6K** in **any browser
+over plain Ethernet** — no ATEM Streaming Bridge needed. A plug-and-play system that
+turns the camera into a sub-half-second **live view in your browser**, built for
+wire-focus pulls, camera monitoring and client monitors on set.
 
 - **WebRTC primary** — camera SRT → `mediaMTX` → browser, ~**0.2–0.4s** glass-to-glass
 - **fMP4/MSE fallback** — automatic when WebRTC can't be used (~0.4–0.8s)
 - **Pure passthrough on the low-latency path** — no re-encode, no fragment buffering
 - No hardware decoders, no ATEM boxes, no cloud — just the camera, a PC and a browser (Chrome/Edge)
+
+**What this replaces:** Blackmagic's official route for on-set monitoring is an
+**ATEM Streaming Bridge** box. This project does the same job entirely in software on a
+Windows PC you already own — free, no purchase, no extra hardware.
 
 ```
 ┌──────────┐     SRT caller      ┌──────────┐  ffmpeg -f whip   ┌──────────┐   WHEP    ┌─────────┐
@@ -20,12 +25,19 @@ monitoring and client monitors on set.
 
 ## Quick start (Windows; ~10 minutes)
 
+**What you get:** a web page at `http://localhost:9090` that live-views your PYXIS over
+the LAN — no internet, no cloud, no SDKs. The app manages ffmpeg + mediaMTX for you and
+auto-respawns either if it crashes. Other devices on your network can open the same page
+(see *Multiple viewers* below).
+
 1. **Install ffmpeg** (>= 8.x, needs the native `whip` muxer and libsrt):
    `winget install Gyan.FFmpeg` — or download from gyan.dev and make sure `ffmpeg` is on PATH.
 
 2. **Download mediaMTX** v1.20.x (single exe) from
    [github.com/bluenviron/mediamtx/releases](https://github.com/bluenviron/mediamtx/releases)
    and place it at `mediamtx/mediamtx.exe` (it sits next to `mediamtx.yml`).
+   `mediamtx.yml` is verified against **v1.20.x**; newer major releases may rename config
+   keys — if mediaMTX fails to start, check its changelog before upgrading.
 
 3. **Edit `mediamtx/mediamtx.yml`** → `webrtcAdditionalHosts` is empty by default
    (auto-detected from your PC's NIC). If browser clients can't connect, set your PC's LAN IP,
@@ -49,6 +61,11 @@ monitoring and client monitors on set.
 
 > The app auto-starts mediaMTX on boot and auto-respawns the SRT listener if the camera
 > drops — no other services to babysit.
+
+> **The app never starts or stops the camera.** After the platform XML is uploaded and
+> selected, you must press Start/Stream **on the camera** yourself. Once streaming, the
+> camera's SRT caller reconnects on its own if the PC listener restarts (see
+> [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)).
 
 ## Camera setup (one time)
 
@@ -98,6 +115,25 @@ repo as `streaming.xml` ("Pyxis Local SRT", 1080p24, H.264, 16 Mbps, SRT caller 
 
 Same-PC viewing needs no firewall changes. Viewing from another machine on the LAN: whitelist
 `8889`/`8189`/`9000`/`9090` in Windows Firewall.
+
+## Multiple viewers (desktop + laptop, WiFi)
+
+The same page runs on **any device on your network** — a desktop, a laptop on WiFi, a
+phone — all watching the PYXIS at once. Each browser runs its **own** WebRTC (WHEP)
+session, so there's no channel limit; viewers that can't ride WebRTC auto-fall back to
+the slightly-delayed MSE path.
+
+- **Address:** open `http://<PC_IP>:9090` on each device, where `<PC_IP>` is this PC's
+  LAN address (same one you put in `streaming.xml` / `mediamtx.yml`, or see
+  `http://localhost:9090/api/config`).
+- **Firewall:** when viewing from another machine, whitelist `8889`/`8189` (plus `9090`
+  for the page) in Windows Firewall — see *Ports used* above.
+- **WiFi:** works, but wireless adds jitter. A WiFi viewer may occasionally trip the
+  WebRTC health check and slide to the MSE fallback (~0.4–0.8s) until it stabilizes.
+  Wired is steadier for the SRT ingest; each WiFi client just monitors.
+- **Bandwidth:** each WebRTC viewer is one extra stream from mediaMTX to that browser.
+  On a 1 Gb/s switch a handful of 1080p viewers is trivial; over WiFi expect per-client
+  headroom to matter more.
 
 ## Latency
 
